@@ -16,6 +16,7 @@ for l in anno_lines:
     gt_dict[l_contents[0]] = np.array(
         [list(map(int, l_boxes[i:i + 5])) for i in range(0, len(l_boxes), 5)])
 # iter by file name
+f_out = open('annotation.txt', 'w')
 for key in gt_dict:
     if not key == 'img00006.jpg':
         continue
@@ -23,5 +24,11 @@ for key in gt_dict:
     image_cutter = Im2Chip(key, gt_dict[key])
     # image_cutter.genChip(image_cutter.image3x, image_cutter.image3x_chips_candidates, 3, [0,512])
     # image_cutter.genChip(image_cutter.image512, image_cutter.image512_chips_candidates, 512/max(image_cutter.image.shape), [0,512])
-    image_cutter.genChipMultiScale('output_images')
+    gts = image_cutter.genChipMultiScale('output_images')
+    for key in gts:
+        f_out.write(key)
+        for box in gts[key]:
+            f_out.write(' ')
+            f_out.write('%d %f %f %f %f' %(box[0], box[1], box[2], box[3], box[4]))
+        f_out.write('\n')
     break

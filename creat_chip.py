@@ -120,25 +120,33 @@ class Im2Chip(object):
     def genChipMultiScale(self, path):
         if not os.path.isdir(path):
             os.mkdir(path)
-        chips, chips_gts = self.__genChip(
-            self.image2x, self.image2x_chips_candidates, 2., [0, 512])
+        chips1, chips_gts1 = self.__genChip(
+            self.image2x, self.image2x_chips_candidates, 512/max(self.image.shape), [32, 150])
+        chips2, chips_gts2 = self.__genChip(
+            self.image2x, self.image2x_chips_candidates, 2., [32, 150])
+        chips3, chips_gts3 = self.__genChip(
+            self.image3x, self.image3x_chips_candidates, 3., [120, 100000]
+        )
+        chips = chips1 + chips2 + chips3
+        chips_gts = chips_gts1 + chips_gts2 + chips_gts3
+        gt_out = {}
         for i in range(len(chips)):
             origin_name = self.imname.split('.')[0]
-            new_name = origin_name + str('2%03d' % i) +'.jpg'
+            new_name = origin_name + str('2%03d' % i) + '.jpg'
             new_path = os.path.join(path, new_name)
-            print(new_path)
             new_chip = np.array(chips[i])
-            new_chip.resize((512,512,3))
+            new_chip.resize((512, 512, 3))
             cv2.imwrite(new_path, new_chip)
-            for gt in chips_gts[i]:
-                chip = gt[1:]
-                chip = list(map(int, chip))
-                cv2.rectangle(chips[i], (chip[0], chip[1]),
-                              (chip[0] + chip[2], chip[1] + chip[3]),
-                              (255, 0, 0), 2)
-                cv2.imshow('image', np.array(chips[i]))
-                cv2.waitKey(0)
-        return 0
+            gt_out[new_name] = chips_gts[i]
+        # for gt in chips_gts[i]:
+        #     chip = gt[1:]
+        #     chip = list(map(int, chip))
+        #     cv2.rectangle(chips[i], (chip[0], chip[1]),
+        #                   (chip[0] + chip[2], chip[1] + chip[3]),
+        #                   (255, 0, 0), 2)
+        #     cv2.imshow('image', np.array(chips[i]))
+        #     cv2.waitKey(0)
+        return gt_out
 
     def __genChipCandidate(self, shape):
         # cv2 have revised order of shape
