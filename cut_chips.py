@@ -20,6 +20,7 @@ for l in anno_lines:
 # iter by file name
 f_out = open('annotation.txt', 'w')
 for key in gt_dict:
+    print(key)
     # if not key == 'img00006.jpg':
     #     continue
     if not os.path.isfile('train/%s' % key):
