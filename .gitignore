@@ -2,5 +2,5 @@ img*
 *.json
 *.txt
 output_images/*
-__pychche__
+__pycache__
 .vscode
