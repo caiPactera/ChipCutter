@@ -5,12 +5,15 @@ import os
 
 
 class Im2Chip(object):
-    def __init__(self, im_file, gt_list):
+    def __init__(self, im_file, gt_list, im_path):
         self.imname = im_file
-        self.image = cv2.imread(im_file, cv2.IMREAD_COLOR)
+        self.impath = os.path.join(im_path, im_file)
         self.gt_list = gt_list
 
-        self.image2x = cv2.resize(self.image, (0, 0), fx=2., fy=2.)
+        self.image = cv2.imread(self.impath, cv2.IMREAD_COLOR)
+        self.image_chips_candidates = self.__genChipCandidate(self.image.shape)
+
+        self.image2x = cv2.resize(self.image, (0, 0), fx=1.6667, fy=1.6667)
         self.image2x_chips_candidates = self.__genChipCandidate(
             self.image2x.shape)
         self.image3x = cv2.resize(self.image, (0, 0), fx=3., fy=3.)
@@ -53,13 +56,14 @@ class Im2Chip(object):
     def __genChip(self, image, chip_candidates, scale, s_range):
         box_min = s_range[0]
         box_max = s_range[1]
-        print(box_min)
         # print()
-
-        gt_filtered = np.array([
-            s for s in self.gt_list if (s[2] > box_min or s[3] > box_min)
-            and s[2] < box_max and s[3] < box_max
-        ]).astype(float)
+        gt_filtered = np.array([])
+        if not len(self.gt_list) == 0:
+            gt_filtered = np.array([
+                s for s in self.gt_list if (s[3] >= box_min or s[4] >= box_min)
+                and s[3] < box_max and s[4] < box_max
+            ]).astype(float)
+        # gt_filtered_unscaled = np.array([])
         if not len(gt_filtered) == 0:
             gt_filtered[:, 1:] *= scale
         contains, gt2candidates = self.__overlap(chip_candidates, gt_filtered)
@@ -107,11 +111,6 @@ class Im2Chip(object):
             #                   (255, 0, 0), 2)
             #     cv2.imshow('image', im_crop)
             #     cv2.waitKey(0)
-            # TODO
-            # crop gt on chip edge
-            # for gt_index in self.gt_list:
-            # print(gt_index)
-            # print(chips_gts)
 
             candidates_contains_max = np.argmax(candidates_contains_size)
 
@@ -121,31 +120,33 @@ class Im2Chip(object):
         if not os.path.isdir(path):
             os.mkdir(path)
         chips1, chips_gts1 = self.__genChip(
-            self.image2x, self.image2x_chips_candidates, 512/max(self.image.shape), [32, 150])
+            self.image, self.image_chips_candidates, 1., [200, 480])
         chips2, chips_gts2 = self.__genChip(
-            self.image2x, self.image2x_chips_candidates, 2., [32, 150])
+            self.image2x, self.image2x_chips_candidates, 1.6667, [128, 256])
         chips3, chips_gts3 = self.__genChip(
-            self.image3x, self.image3x_chips_candidates, 3., [120, 100000]
-        )
-        chips = chips1 + chips2 + chips3
-        chips_gts = chips_gts1 + chips_gts2 + chips_gts3
+            self.image3x, self.image3x_chips_candidates, 3., [0, 160])
+        chips4, chips_gts4 = self.__genChip(
+            self.image512, self.image512_chips_candidates,
+            512 / max(self.image.shape), [432, 100000])
+        chips = chips1 + chips2 + chips3 + chips4
+        chips_gts = chips_gts1 + chips_gts2 + chips_gts3 + chips_gts4
         gt_out = {}
         for i in range(len(chips)):
             origin_name = self.imname.split('.')[0]
-            new_name = origin_name + str('2%03d' % i) + '.jpg'
+            new_name = origin_name + str('1%02d' % i) + '.jpg'
             new_path = os.path.join(path, new_name)
             new_chip = np.array(chips[i])
             new_chip.resize((512, 512, 3))
             cv2.imwrite(new_path, new_chip)
             gt_out[new_name] = chips_gts[i]
-        # for gt in chips_gts[i]:
-        #     chip = gt[1:]
-        #     chip = list(map(int, chip))
-        #     cv2.rectangle(chips[i], (chip[0], chip[1]),
-        #                   (chip[0] + chip[2], chip[1] + chip[3]),
-        #                   (255, 0, 0), 2)
-        #     cv2.imshow('image', np.array(chips[i]))
-        #     cv2.waitKey(0)
+            # for gt in chips_gts[i]:
+            #     chip = gt[1:]
+            #     chip = list(map(int, chip))
+            #     cv2.rectangle(chips[i], (chip[0], chip[1]),
+            #                   (chip[0] + chip[2], chip[1] + chip[3]),
+            #                   (255, 0, 0), 2)
+            #     cv2.imshow('image', np.array(chips[i]))
+            #     cv2.waitKey(0)
         return gt_out
 
     def __genChipCandidate(self, shape):

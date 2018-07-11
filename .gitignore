@@ -4,3 +4,4 @@ img*
 output_images/*
 __pycache__
 .vscode
+box_count
