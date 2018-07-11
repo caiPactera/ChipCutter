@@ -1,3 +1,6 @@
 img*
 *.json
 *.txt
+output_images/*
+__pychche__
+.vscode

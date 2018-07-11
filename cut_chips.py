@@ -17,11 +17,11 @@ for l in anno_lines:
         [list(map(int, l_boxes[i:i + 5])) for i in range(0, len(l_boxes), 5)])
 # iter by file name
 for key in gt_dict:
-    if not key == 'img00005.jpg':
+    if not key == 'img00006.jpg':
         continue
     print(key)
     image_cutter = Im2Chip(key, gt_dict[key])
     # image_cutter.genChip(image_cutter.image3x, image_cutter.image3x_chips_candidates, 3, [0,512])
     # image_cutter.genChip(image_cutter.image512, image_cutter.image512_chips_candidates, 512/max(image_cutter.image.shape), [0,512])
-    image_cutter.genChipMultiScale('output')
+    image_cutter.genChipMultiScale('output_images')
     break

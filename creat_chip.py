@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 import json
+import os
 
 
 class Im2Chip(object):
@@ -117,13 +118,18 @@ class Im2Chip(object):
         return chips, chips_gts
 
     def genChipMultiScale(self, path):
+        if not os.path.isdir(path):
+            os.mkdir(path)
         chips, chips_gts = self.__genChip(
             self.image2x, self.image2x_chips_candidates, 2., [0, 512])
         for i in range(len(chips)):
             origin_name = self.imname.split('.')[0]
             new_name = origin_name + str('2%03d' % i) +'.jpg'
-            print(new_name)
-            # cv2.imwrite(self.imname)
+            new_path = os.path.join(path, new_name)
+            print(new_path)
+            new_chip = np.array(chips[i])
+            new_chip.resize((512,512,3))
+            cv2.imwrite(new_path, new_chip)
             for gt in chips_gts[i]:
                 chip = gt[1:]
                 chip = list(map(int, chip))
