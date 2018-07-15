@@ -8,15 +8,22 @@ class Im2Chip(object):
     def __init__(self, im_file, gt_list, im_path):
         self.imname = im_file
         self.impath = os.path.join(im_path, im_file)
-        self.gt_list = gt_list
+        print(self.impath)
+        # self.gt_list = gt_list
+        self.rp_list = [[1, 1, 1, 1], [32, 32, 32, 32], [300, 300, 300, 300]]
 
         self.image = cv2.imread(self.impath, cv2.IMREAD_COLOR)
         self.image_chips_candidates = self.__genChipCandidate(self.image.shape)
 
-        self.image2x = cv2.resize(self.image, (0, 0), fx=1.6667, fy=1.6667)
+        self.image2x = cv2.resize(
+            self.image, (0, 0),
+            fx=1.6667,
+            fy=1.6667,
+            interpolation=cv2.INTER_LINEAR)
         self.image2x_chips_candidates = self.__genChipCandidate(
             self.image2x.shape)
-        self.image3x = cv2.resize(self.image, (0, 0), fx=3., fy=3.)
+        self.image3x = cv2.resize(
+            self.image, (0, 0), fx=3., fy=3., interpolation=cv2.INTER_LINEAR)
         self.image3x_chips_candidates = self.__genChipCandidate(
             self.image3x.shape)
         self.image512 = self.__im2ChipSize(self.image)
@@ -26,7 +33,10 @@ class Im2Chip(object):
     def __im2ChipSize(self, image):
         im_max_size = max(self.image.shape[:2])
         return cv2.resize(
-            image, (0, 0), fx=512. / im_max_size, fy=512. / im_max_size)
+            image, (0, 0),
+            fx=512. / im_max_size,
+            fy=512. / im_max_size,
+            interpolation=cv2.INTER_LINEAR)
 
     def __contain_single_box(self, chip, box):
         if chip[0] <= box[0] and chip[1] <= box[1] and (
@@ -41,80 +51,105 @@ class Im2Chip(object):
             x[:] for x in [[False] * len(gt_list)] * len(chip_candidates)
         ]
         gt2candidates = {}
+        candidate_contains_size = []
+        candidate_contains = []
         for i in range(len(chip_candidates)):
+            contain = set()
             for j in range(len(gt_list)):
-                if self.__contain_single_box(chip_candidates[i],
-                                             gt_list[j][1:]):
+                if self.__contain_single_box(chip_candidates[i], gt_list[j]):
+                    contain.add(j)
                     contains[i][j] = True
                     if j in gt2candidates:
                         gt2candidates[j].add(i)
                     else:
                         gt2candidates[j] = set()
                         gt2candidates[j].add(i)
+            candidate_contains.append(contain)
+            candidate_contains_size.append(len(contain))
         return contains, gt2candidates
 
     def __genChip(self, image, chip_candidates, scale, s_range):
-        box_min = s_range[0]
-        box_max = s_range[1]
-        # print()
+        [box_min, box_max] = s_range
         gt_filtered = np.array([])
         if not len(self.gt_list) == 0:
             gt_filtered = np.array([
                 s for s in self.gt_list if (s[3] >= box_min or s[4] >= box_min)
                 and s[3] < box_max and s[4] < box_max
             ]).astype(float)
-        # gt_filtered_unscaled = np.array([])
         if not len(gt_filtered) == 0:
             gt_filtered[:, 1:] *= scale
-        contains, gt2candidates = self.__overlap(chip_candidates, gt_filtered)
-        candidates_contains_size = []
-        candidates_contains = []
-        for i in range(len(chip_candidates)):
-            match = set()
-            for j in range(len(gt_filtered)):
-                if contains[i][j] == True:
-                    match.add(j)
-            candidates_contains.append(match)
-            candidates_contains_size.append(len(match))
+        chips_pos = self.__genPosChips(chip_candidates, gt_filtered)
+        # chips = chips_pos
+        rp_filtered = np.array([
+            s for s in self.rp_list if (s[2] >= box_min or s[3] >= box_min)
+            and s[2] < box_max and s[3] < box_max
+        ]).astype(float)
+        rp_filtered *= scale
+        chips_neg = self.__genNegChips(chip_candidates, chips_pos, rp_filtered,
+                                       1, 2)
+        chips = chip_candidates[chips_neg + chips_pos]
+        # chips_im = [
+        #     image[chip[1]:(chip[1] + chip[3]), chip[0]:(chip[0] + chip[2])]
+        #     for chip in chips
+        # ]
+        self.__genChipsGt(chips, gt_filtered)
         chips_gts = []
-        chips = []
-        candidates_contains_max = np.argmax(candidates_contains_size)
-        while not candidates_contains_size[candidates_contains_max] == 0:
-            imcrop_box = chip_candidates[candidates_contains_max].astype(int)
-            im_crop = image[imcrop_box[1]:(
-                imcrop_box[1] + imcrop_box[3]), imcrop_box[0]:(
-                    imcrop_box[0] + imcrop_box[2])]
-            chips.append(im_crop)
-            chip_gt = []
-            gt_inside_list = list(candidates_contains[candidates_contains_max])
-            for gt_inside_index in gt_inside_list:
-                # add to output gt
-                gt_scaled = gt_filtered[gt_inside_index]
-                gt_scaled[1:3] -= chip_candidates[candidates_contains_max, 0:2]
-                # print(chip_candidates[candidates_contains_max, 0:2])
-                # print(gtoverlap_scaled)
-                chip_gt.append(gt_scaled)
-
-                # delete from candidate contain list
-                for candidate_index in gt2candidates[gt_inside_index]:
-                    # print(candidate_index)
-                    candidates_contains_size[candidate_index] -= 1
-                    candidates_contains[candidate_index].remove(
-                        gt_inside_index)
-            chips_gts.append(chip_gt)
-
-            # for gt in chip_gt:
-            #     chip = gt[1:]
-            #     chip = list(map(int, chip))
-            #     cv2.rectangle(im_crop, (chip[0], chip[1]),
-            #                   (chip[0] + chip[2], chip[1] + chip[3]),
-            #                   (255, 0, 0), 2)
-            #     cv2.imshow('image', im_crop)
-            #     cv2.waitKey(0)
-
-            candidates_contains_max = np.argmax(candidates_contains_size)
-
         return chips, chips_gts
+        # return chips_im
+
+    def __genPosChips(self, chip_candidates, gt_filtered):
+        gt_boxes = gt_filtered[:, 1:] if len(gt_filtered) > 0 else []
+        contains, gt2candidates = self.__overlap(chip_candidates, gt_boxes)
+        candidate_contains_size, candidate_contains = self.__countOverlap(
+            contains)
+        chips = []
+        gt_checked = set()
+        candidate_contains_max = np.argmax(candidate_contains_size)
+        while not (candidate_contains_size[candidate_contains_max] == 0):
+            chips.append(candidate_contains_max)
+            # chip_gt = []
+            gt_inside_list = list(candidate_contains[candidate_contains_max])
+            for gt_inside_index in gt_inside_list:
+                # delete from candidate contain list
+                if gt_inside_index not in gt_checked:
+                    for candidate_index in gt2candidates[gt_inside_index]:
+                        candidate_contains_size[candidate_index] -= 1
+                    gt_checked.add(gt_inside_index)
+            candidate_contains_max = np.argmax(candidate_contains_size)
+        return chips
+
+    def __genNegChips(self, chip_candidates, chips_pos, rp_filtered, rpn_count,
+                      n):
+        contains, rp2candidates = self.__overlap(chip_candidates, rp_filtered)
+        candidate_contains_size, candidate_contains = self.__countOverlap(
+            contains)
+        checked_rp = set()
+        for chosen_chip in chips_pos:
+            for rp in candidate_contains[chosen_chip]:
+                if rp not in checked_rp:
+                    checked_rp.add(rp)
+                    for candidate in rp2candidates[rp]:
+                        candidate_contains_size[candidate] -= 1
+        # print(candidate_contains_size)
+        candidate_contains_size = np.array(candidate_contains_size)
+        chip_neg = np.argwhere(
+            candidate_contains_size >= rpn_count).flatten().tolist()
+        np.random.shuffle(chip_neg)
+        return chip_neg[0:n]
+
+    def __genChipsGt(self, chips_choosen, gt_filtered):
+        # add to output gt
+        contains, gt2candidates = self.__overlap(chips_choosen, gt_filtered)
+        candidate_contains_size, candidate_contains = self.__countOverlap(
+            contains)
+
+        # for i in range(len(chips_choosen)):
+        #     # for gt_index in candidate_contains:
+        #     gt_choosen = gt_filtered[chips_choosen]
+
+        # gt_scaled = gt_filtered[gt_inside_index]
+        # gt_scaled[1:3] -= chip_candidates[candidate_contains_max, 0:2]
+        return candidate_contains
 
     def genChipMultiScale(self, path):
         if not os.path.isdir(path):
@@ -136,6 +171,9 @@ class Im2Chip(object):
             new_name = origin_name + str('1%02d' % i) + '.jpg'
             new_path = os.path.join(path, new_name)
             new_chip = np.array(chips[i])
+            # TODO:
+            # this is a error!!!
+            # resize do not keep original shape and order
             new_chip.resize((512, 512, 3))
             cv2.imwrite(new_path, new_chip)
             gt_out[new_name] = chips_gts[i]
@@ -148,6 +186,62 @@ class Im2Chip(object):
             #     cv2.imshow('image', np.array(chips[i]))
             #     cv2.waitKey(0)
         return gt_out
+
+    def genTestImg(self, length, path, position_file):
+        image_slice0, image_data_0 = self.__genTestImgSingleScale(
+            self.image512, length, 0)
+        image_slice1, image_data_1 = self.__genTestImgSingleScale(
+            self.image, length, 1)
+        image_slice2, image_data_2 = self.__genTestImgSingleScale(
+            self.image, length, 2)
+        image_slice3, image_data_3 = self.__genTestImgSingleScale(
+            self.image3x, length, 3)
+        image_slice = {
+            **image_slice0,
+            **image_slice1,
+            **image_slice2,
+            **image_slice3
+        }
+        image_data = {
+            **image_data_0,
+            **image_data_1,
+            **image_data_2,
+            **image_data_3
+        }
+        for im_name in image_slice:
+            im_path = os.path.join(path, im_name)
+            # cv2.imshow('name' , image_slice[im_name])
+            cv2.imwrite(im_path, image_slice[im_name])
+        # with open(os.path.join(path,self.imname), 'w') as outfile:
+        #     json.dump(image_data, outfile)
+        return image_data
+
+    def __genTestImgSingleScale(self, image, length, scale):
+        image_slice = {}
+        image_info = {}
+        [h, w] = image.shape[0:2]
+        x_slice_num = int(w // length) + 1
+        y_slice_num = int(h // length) + 1
+        if not x_slice_num == 1:
+            x_slice_num += 1
+        if not y_slice_num == 1:
+            y_slice_num += 1
+        x_top_left_pos = np.linspace(
+            0, w - length, x_slice_num, endpoint=True, dtype=int)
+        y_top_left_pos = np.linspace(
+            0, h - length, y_slice_num, endpoint=True, dtype=int)
+        top_left_pos = [[x, y] for x in x_top_left_pos for y in y_top_left_pos]
+        for i in range(len(top_left_pos)):
+            slice_name = '%s_%d_%02d.jpg' % (self.imname.split('.')[0], scale,
+                                             i)
+            slice_data = np.array(
+                image[top_left_pos[i][1]:top_left_pos[i][1] +
+                      length, top_left_pos[i][0]:top_left_pos[i][0] + length])
+            slice_reshape = np.zeros((length,length,3)).astype(np.uint8)
+            slice_reshape[0:slice_data.shape[0],0:slice_data.shape[1],:] += slice_data
+            image_slice[slice_name] = slice_reshape
+            image_info[slice_name] = top_left_pos[i] + [scale]
+        return image_slice, image_info
 
     def __genChipCandidate(self, shape):
         # cv2 have revised order of shape
@@ -174,3 +268,15 @@ class Im2Chip(object):
         # chips = chips.reshape(x_inds, y_inds, 4)
         np.random.shuffle(chips)
         return chips
+
+    def __countOverlap(self, contains):
+        candidate_contains_size = []
+        candidate_contains = []
+        for i in range(len(contains)):
+            match = set()
+            for j in range(len(contains[0])):
+                if contains[i][j] == True:
+                    match.add(j)
+            candidate_contains.append(match)
+            candidate_contains_size.append(len(match))
+        return candidate_contains_size, candidate_contains
