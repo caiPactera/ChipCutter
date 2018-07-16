@@ -8,8 +8,7 @@ class Im2Chip(object):
     def __init__(self, im_file, gt_list, im_path):
         self.imname = im_file
         self.impath = os.path.join(im_path, im_file)
-        print(self.impath)
-        # self.gt_list = gt_list
+        self.gt_list = gt_list
         self.rp_list = [[1, 1, 1, 1], [32, 32, 32, 32], [300, 300, 300, 300]]
 
         self.image = cv2.imread(self.impath, cv2.IMREAD_COLOR)
@@ -29,6 +28,139 @@ class Im2Chip(object):
         self.image512 = self.__im2ChipSize(self.image)
         self.image512_chips_candidates = self.__genChipCandidate(
             self.image512.shape)
+
+    def genChipMultiScale(self, path):
+        if not os.path.isdir(path):
+            os.mkdir(path)
+        chips1, chips_gts1 = self.__genChip(
+            self.image, self.image_chips_candidates, 1., [200, 480])
+        chips2, chips_gts2 = self.__genChip(
+            self.image2x, self.image2x_chips_candidates, 1.6667, [128, 256])
+        chips3, chips_gts3 = self.__genChip(
+            self.image3x, self.image3x_chips_candidates, 3., [0, 160])
+        chips4, chips_gts4 = self.__genChip(
+            self.image512, self.image512_chips_candidates,
+            512 / max(self.image.shape), [432, 100000])
+        chips = chips1 + chips2 + chips3 + chips4
+        chips_gts = chips_gts1 + chips_gts2 + chips_gts3 + chips_gts4
+        gt_out = {}
+        for i in range(len(chips)):
+            origin_name = self.imname.split('.')[0]
+            new_name = origin_name + str('1%02d' % i) + '.jpg'
+            new_path = os.path.join(path, new_name)
+            new_chip = np.array(chips[i])
+            # TODO:
+            # this is a error!!!
+            # resize do not keep original shape and order
+            # new_chip.resize((512, 512, 3))
+            # new_chip = np.zeros((512,512,3)).astype(np.uint8)
+            # new_chip[0:,0:slice_data.shape[1],:] += slice_data
+            # cv2.imwrite(new_path, new_chip)
+            # gt_out[new_name] = chips_gts[i]
+            # for gt in chips_gts[i]:
+            #     chip = gt[1:]
+            #     chip = list(map(int, chip))
+            #     cv2.rectangle(chips[i], (chip[0], chip[1]),
+            #                   (chip[0] + chip[2], chip[1] + chip[3]),
+            #                   (255, 0, 0), 2)
+            #     cv2.imshow('image', np.array(chips[i]))
+            #     cv2.waitKey(0)
+        return gt_out
+
+    def genTestImg(self, length, path, position_file):
+        image_slice0, image_data_0 = self.__genTestImgSingleScale(
+            self.image512, length, 0)
+        image_slice1, image_data_1 = self.__genTestImgSingleScale(
+            self.image, length, 1)
+        image_slice2, image_data_2 = self.__genTestImgSingleScale(
+            self.image2x, length, 2)
+        image_slice3, image_data_3 = self.__genTestImgSingleScale(
+            self.image3x, length, 3)
+        image_slice = {
+            **image_slice0,
+            **image_slice1,
+            **image_slice2,
+            **image_slice3
+        }
+        image_data = {
+            **image_data_0,
+            **image_data_1,
+            **image_data_2,
+            **image_data_3
+        }
+        for im_name in image_slice:
+            im_path = os.path.join(path, im_name)
+            # cv2.imshow('name' , image_slice[im_name])
+            cv2.imwrite(im_path, image_slice[im_name])
+        # with open(os.path.join(path,self.imname), 'w') as outfile:
+        #     json.dump(image_data, outfile)
+        return image_data
+
+    def __genTestImgSingleScale(self, image, length, scale):
+        image_slice = {}
+        image_info = {}
+        [h, w] = image.shape[0:2]
+        x_slice_num = int(w // length) + 1
+        y_slice_num = int(h // length) + 1
+        if not x_slice_num == 1:
+            x_slice_num += 1
+        if not y_slice_num == 1:
+            y_slice_num += 1
+        x_top_left_pos = np.linspace(
+            0, w - length, x_slice_num, endpoint=True, dtype=int)
+        y_top_left_pos = np.linspace(
+            0, h - length, y_slice_num, endpoint=True, dtype=int)
+        top_left_pos = [[x, y] for x in x_top_left_pos for y in y_top_left_pos]
+        for i in range(len(top_left_pos)):
+            slice_name = '%s_%d_%02d.jpg' % (self.imname.split('.')[0], scale,
+                                             i)
+            slice_data = np.array(
+                image[top_left_pos[i][1]:top_left_pos[i][1] +
+                      length, top_left_pos[i][0]:top_left_pos[i][0] + length])
+            slice_reshape = np.zeros((length, length, 3)).astype(np.uint8)
+            slice_reshape[0:slice_data.shape[0], 0:slice_data.shape[
+                1], :] += slice_data
+            image_slice[slice_name] = slice_reshape
+            image_info[slice_name] = top_left_pos[i] + [scale]
+        return image_slice, image_info
+
+    def __genChipCandidate(self, shape):
+        # cv2 have revised order of shape
+        h = shape[0]
+        w = shape[1]
+        x_inds = np.arange(0, max(w - 480, 32), 32)
+        xlen = len(x_inds)
+        y_inds = np.arange(0, max(h - 480, 32), 32)
+        ylen = len(y_inds)
+        x_inds = np.array([
+            x_inds,
+        ] * ylen).flatten()
+        y_inds = np.array([
+            y_inds,
+        ] * xlen).flatten(order='F')
+        w_inds = np.ones(len(x_inds)) * 512
+        h_inds = np.ones(len(y_inds)) * 512
+        chips = np.vstack((x_inds, y_inds, w_inds, h_inds)).transpose()
+        for chip in chips:
+            if chip[0] + 512 > w:
+                chip[2] = w - chip[0]
+            if chip[1] + 512 > h:
+                chip[3] = h - chip[1]
+        # chips = chips.reshape(x_inds, y_inds, 4)
+        np.random.shuffle(chips)
+        return chips
+
+    def __countOverlap(self, contains):
+        candidate_contains_size = []
+        candidate_contains = []
+        for i in range(len(contains)):
+            match = set()
+            for j in range(len(contains[0])):
+                if contains[i][j] == True:
+                    match.add(j)
+            candidate_contains.append(match)
+            candidate_contains_size.append(len(match))
+        return candidate_contains_size, candidate_contains
 
     def __im2ChipSize(self, image):
         im_max_size = max(self.image.shape[:2])
@@ -79,7 +211,6 @@ class Im2Chip(object):
         if not len(gt_filtered) == 0:
             gt_filtered[:, 1:] *= scale
         chips_pos = self.__genPosChips(chip_candidates, gt_filtered)
-        # chips = chips_pos
         rp_filtered = np.array([
             s for s in self.rp_list if (s[2] >= box_min or s[3] >= box_min)
             and s[2] < box_max and s[3] < box_max
@@ -95,7 +226,6 @@ class Im2Chip(object):
         self.__genChipsGt(chips, gt_filtered)
         chips_gts = []
         return chips, chips_gts
-        # return chips_im
 
     def __genPosChips(self, chip_candidates, gt_filtered):
         gt_boxes = gt_filtered[:, 1:] if len(gt_filtered) > 0 else []
@@ -150,133 +280,3 @@ class Im2Chip(object):
         # gt_scaled = gt_filtered[gt_inside_index]
         # gt_scaled[1:3] -= chip_candidates[candidate_contains_max, 0:2]
         return candidate_contains
-
-    def genChipMultiScale(self, path):
-        if not os.path.isdir(path):
-            os.mkdir(path)
-        chips1, chips_gts1 = self.__genChip(
-            self.image, self.image_chips_candidates, 1., [200, 480])
-        chips2, chips_gts2 = self.__genChip(
-            self.image2x, self.image2x_chips_candidates, 1.6667, [128, 256])
-        chips3, chips_gts3 = self.__genChip(
-            self.image3x, self.image3x_chips_candidates, 3., [0, 160])
-        chips4, chips_gts4 = self.__genChip(
-            self.image512, self.image512_chips_candidates,
-            512 / max(self.image.shape), [432, 100000])
-        chips = chips1 + chips2 + chips3 + chips4
-        chips_gts = chips_gts1 + chips_gts2 + chips_gts3 + chips_gts4
-        gt_out = {}
-        for i in range(len(chips)):
-            origin_name = self.imname.split('.')[0]
-            new_name = origin_name + str('1%02d' % i) + '.jpg'
-            new_path = os.path.join(path, new_name)
-            new_chip = np.array(chips[i])
-            # TODO:
-            # this is a error!!!
-            # resize do not keep original shape and order
-            new_chip.resize((512, 512, 3))
-            cv2.imwrite(new_path, new_chip)
-            gt_out[new_name] = chips_gts[i]
-            # for gt in chips_gts[i]:
-            #     chip = gt[1:]
-            #     chip = list(map(int, chip))
-            #     cv2.rectangle(chips[i], (chip[0], chip[1]),
-            #                   (chip[0] + chip[2], chip[1] + chip[3]),
-            #                   (255, 0, 0), 2)
-            #     cv2.imshow('image', np.array(chips[i]))
-            #     cv2.waitKey(0)
-        return gt_out
-
-    def genTestImg(self, length, path, position_file):
-        image_slice0, image_data_0 = self.__genTestImgSingleScale(
-            self.image512, length, 0)
-        image_slice1, image_data_1 = self.__genTestImgSingleScale(
-            self.image, length, 1)
-        image_slice2, image_data_2 = self.__genTestImgSingleScale(
-            self.image, length, 2)
-        image_slice3, image_data_3 = self.__genTestImgSingleScale(
-            self.image3x, length, 3)
-        image_slice = {
-            **image_slice0,
-            **image_slice1,
-            **image_slice2,
-            **image_slice3
-        }
-        image_data = {
-            **image_data_0,
-            **image_data_1,
-            **image_data_2,
-            **image_data_3
-        }
-        for im_name in image_slice:
-            im_path = os.path.join(path, im_name)
-            # cv2.imshow('name' , image_slice[im_name])
-            cv2.imwrite(im_path, image_slice[im_name])
-        # with open(os.path.join(path,self.imname), 'w') as outfile:
-        #     json.dump(image_data, outfile)
-        return image_data
-
-    def __genTestImgSingleScale(self, image, length, scale):
-        image_slice = {}
-        image_info = {}
-        [h, w] = image.shape[0:2]
-        x_slice_num = int(w // length) + 1
-        y_slice_num = int(h // length) + 1
-        if not x_slice_num == 1:
-            x_slice_num += 1
-        if not y_slice_num == 1:
-            y_slice_num += 1
-        x_top_left_pos = np.linspace(
-            0, w - length, x_slice_num, endpoint=True, dtype=int)
-        y_top_left_pos = np.linspace(
-            0, h - length, y_slice_num, endpoint=True, dtype=int)
-        top_left_pos = [[x, y] for x in x_top_left_pos for y in y_top_left_pos]
-        for i in range(len(top_left_pos)):
-            slice_name = '%s_%d_%02d.jpg' % (self.imname.split('.')[0], scale,
-                                             i)
-            slice_data = np.array(
-                image[top_left_pos[i][1]:top_left_pos[i][1] +
-                      length, top_left_pos[i][0]:top_left_pos[i][0] + length])
-            slice_reshape = np.zeros((length,length,3)).astype(np.uint8)
-            slice_reshape[0:slice_data.shape[0],0:slice_data.shape[1],:] += slice_data
-            image_slice[slice_name] = slice_reshape
-            image_info[slice_name] = top_left_pos[i] + [scale]
-        return image_slice, image_info
-
-    def __genChipCandidate(self, shape):
-        # cv2 have revised order of shape
-        h = shape[0]
-        w = shape[1]
-        x_inds = np.arange(0, max(w - 480, 32), 32)
-        xlen = len(x_inds)
-        y_inds = np.arange(0, max(h - 480, 32), 32)
-        ylen = len(y_inds)
-        x_inds = np.array([
-            x_inds,
-        ] * ylen).flatten()
-        y_inds = np.array([
-            y_inds,
-        ] * xlen).flatten(order='F')
-        w_inds = np.ones(len(x_inds)) * 512
-        h_inds = np.ones(len(y_inds)) * 512
-        chips = np.vstack((x_inds, y_inds, w_inds, h_inds)).transpose()
-        for chip in chips:
-            if chip[0] + 512 > w:
-                chip[2] = w - chip[0]
-            if chip[1] + 512 > h:
-                chip[3] = h - chip[1]
-        # chips = chips.reshape(x_inds, y_inds, 4)
-        np.random.shuffle(chips)
-        return chips
-
-    def __countOverlap(self, contains):
-        candidate_contains_size = []
-        candidate_contains = []
-        for i in range(len(contains)):
-            match = set()
-            for j in range(len(contains[0])):
-                if contains[i][j] == True:
-                    match.add(j)
-            candidate_contains.append(match)
-            candidate_contains_size.append(len(match))
-        return candidate_contains_size, candidate_contains

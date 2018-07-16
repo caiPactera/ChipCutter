@@ -23,17 +23,17 @@ f_out = open('annotation.txt', 'w')
 img_info_total = {}
 # for key in gt_dict:
 for key in os.listdir(IMG_PATH):
-    # print(key)
-    # if not key == 'img00006.jpg':
+    print(key)
+    # if not key ==/media/workspace/bgong/data/WIDER_Pedestrian_Challenge/data 'img00006.jpg':
     #     continue
     # if not os.path.isfile('train/%s' % key):
     #     continue
     # im_path = os.path.join(IMG_PATH,)
     # image_cutter = Im2Chip(key, gt_dict[key], IMG_PATH)
 
-    image_cutter = Im2Chip(key, IMG_PATH)
+    image_cutter = Im2Chip(key,[], IMG_PATH)
     # gts = image_cutter.genChipMultiScale('output_images')
-    img_info = image_cutter.genTestImg(1100, IMG_PATH, 'position')
+    img_info = image_cutter.genTestImg(1100, 'val_cut', 'position')
     img_info_total.update(img_info)
 with open(POSITION_PATH, 'w') as position_file:
     for key in img_info_total:
