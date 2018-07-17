@@ -9,3 +9,4 @@ val
 path
 train
 json_for_test
+*.pkl

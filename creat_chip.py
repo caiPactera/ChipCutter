@@ -5,11 +5,11 @@ import os
 
 
 class Im2Chip(object):
-    def __init__(self, im_file, gt_list, im_path):
+    def __init__(self, im_file, gt_list, rp_list, im_path):
         self.imname = im_file
         self.impath = os.path.join(im_path, im_file)
         self.gt_list = gt_list
-        self.rp_list = [[1, 1, 1, 1], [32, 32, 32, 32], [300, 300, 300, 300]]
+        self.rp_list = rp_list
 
         self.image = cv2.imread(self.impath, cv2.IMREAD_COLOR)
         self.image_chips_candidates = self.__genChipCandidate(self.image.shape)
@@ -40,28 +40,25 @@ class Im2Chip(object):
             512 / max(self.image.shape), [300, 100000])
         chips = chips1 + chips2 + chips3 + chips4
         chips_gts = chips_gts1 + chips_gts2 + chips_gts3 + chips_gts4
-        print(chips_gts)
         gt_out = {}
         for i in range(len(chips)):
             origin_name = self.imname.split('.')[0]
             new_name = origin_name + str('1%02d' % i) + '.jpg'
             new_path = os.path.join(path, new_name)
-            new_chip = np.array(chips[i])
+            new_chip = np.array(chips[i]).astype(np.uint8)
             # TODO:
             # this is a error!!!
             # resize do not keep original shape and order
-            # new_chip.resize((512, 512, 3))
-            # new_chip = np.zeros((512,512,3)).astype(np.uint8)
-            # new_chip[0:,0:slice_data.shape[1],:] += slice_data
-            # cv2.imwrite(new_path, new_chip)
-            # gt_out[new_name] = chips_gts[i]
+            chip_reshape = np.zeros((512,512,3)).astype(np.uint8)
+            chip_reshape[0:new_chip.shape[0],0:new_chip.shape[1],:] += chips[i]
+            cv2.imwrite(new_path, chip_reshape)
+            gt_out[new_name] = chips_gts[i]
             # for gt in chips_gts[i]:
-            #     chip = gt[1:]
-            #     chip = list(map(int, chip))
-            #     cv2.rectangle(chips[i], (chip[0], chip[1]),
-            #                   (chip[0] + chip[2], chip[1] + chip[3]),
+            #     gt_box = list(map(int, gt[1:]))
+            #     cv2.rectangle(chip_reshape, (gt_box[0], gt_box[1]),
+            #                   (gt_box[0] + gt_box[2], gt_box[1] + gt_box[3]),
             #                   (255, 0, 0), 2)
-            #     cv2.imshow('image', np.array(chips[i]))
+            #     cv2.imshow('image', chip_reshape)
             #     cv2.waitKey(0)
         return gt_out
 
@@ -177,9 +174,6 @@ class Im2Chip(object):
             return False
 
     def __overlap(self, chip_candidates, gt_list):
-        contains = [
-            x[:] for x in [[False] * len(gt_list)] * len(chip_candidates)
-        ]
         gt2candidates = {}
         candidate_contains_size = []
         candidate_contains = []
@@ -188,7 +182,6 @@ class Im2Chip(object):
             for j in range(len(gt_list)):
                 if self.__contain_single_box(chip_candidates[i], gt_list[j]):
                     contain.add(j)
-                    contains[i][j] = True
                     if j in gt2candidates:
                         gt2candidates[j].add(i)
                     else:
@@ -216,10 +209,8 @@ class Im2Chip(object):
         ]).astype(float)
         rp_filtered *= scale
         chips_neg = self.__genNegChips(chip_candidates, chips_pos, rp_filtered,
-                                       1, 2)
+                                      40, 2)
         chips_shape = chip_candidates[chips_neg + chips_pos].astype(int)
-        # print(chips_pos_test)
-        # print(chips_pos)
         chips, chips_gts = self.__genChipsGt(chips_shape, image, gt_filtered)
         # chips_gts = []
         return chips, chips_gts
@@ -256,17 +247,16 @@ class Im2Chip(object):
                     checked_rp.add(rp)
                     for candidate in rp2candidates[rp]:
                         candidate_contains_size[candidate] -= 1
-        # print(candidate_contains_size)
         candidate_contains_size = np.array(candidate_contains_size)
         chip_neg = np.argwhere(
             candidate_contains_size >= rpn_count).flatten().tolist()
         np.random.shuffle(chip_neg)
+        # print(chip_neg)
         return chip_neg[0:n]
 
     def __genChipsGt(self, chips_shape, image, gt_filtered):
         gt_boxes = gt_filtered[:, 1:] if len(gt_filtered) > 0 else []
         # add to output gt
-        # print(chips_shape)
         chips = [
             image[s[1]:(s[1] + s[3]), s[0]:(s[0] + s[2])] for s in chips_shape
         ]
@@ -281,13 +271,13 @@ class Im2Chip(object):
                 gt[1:3] -= chips_shape[i][0:2]
                 chip_gt.append(gt)
             chip_gts.append(chip_gt)
-        for i in range(len(chips)):
-            chips[i] = chips[i].copy()
-            for gt in chip_gts[i]:
-                gt = gt.astype(int)
-                cv2.rectangle(chips[i], (gt[1], gt[2]),
-                              (gt[1] + gt[3], gt[2] + gt[4]), (255, 0, 0), 1)
-            cv2.imshow('image', chips[i])
-            cv2.waitKey(0)
+        # for i in range(len(chips)):
+        #     chips[i] = chips[i].copy()
+        #     for gt in chip_gts[i]:
+        #         gt = gt.astype(int)
+        #         cv2.rectangle(chips[i], (gt[1], gt[2]),
+        #                       (gt[1] + gt[3], gt[2] + gt[4]), (255, 0, 0), 1)
+        #     cv2.imshow('image', chips[i])
+        #     cv2.waitKey(0)
 
         return chips, chip_gts
