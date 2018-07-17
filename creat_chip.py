@@ -15,10 +15,7 @@ class Im2Chip(object):
         self.image_chips_candidates = self.__genChipCandidate(self.image.shape)
 
         self.image2x = cv2.resize(
-            self.image, (0, 0),
-            fx=1.6667,
-            fy=1.6667,
-            interpolation=cv2.INTER_LINEAR)
+            self.image, (0, 0), fx=2., fy=2., interpolation=cv2.INTER_LINEAR)
         self.image2x_chips_candidates = self.__genChipCandidate(
             self.image2x.shape)
         self.image3x = cv2.resize(
@@ -33,16 +30,17 @@ class Im2Chip(object):
         if not os.path.isdir(path):
             os.mkdir(path)
         chips1, chips_gts1 = self.__genChip(
-            self.image, self.image_chips_candidates, 1., [200, 480])
+            self.image, self.image_chips_candidates, 1., [128, 320])
         chips2, chips_gts2 = self.__genChip(
-            self.image2x, self.image2x_chips_candidates, 1.6667, [128, 256])
+            self.image2x, self.image2x_chips_candidates, 2, [80, 160])
         chips3, chips_gts3 = self.__genChip(
-            self.image3x, self.image3x_chips_candidates, 3., [0, 160])
+            self.image3x, self.image3x_chips_candidates, 3., [0, 100])
         chips4, chips_gts4 = self.__genChip(
             self.image512, self.image512_chips_candidates,
-            512 / max(self.image.shape), [432, 100000])
+            512 / max(self.image.shape), [300, 100000])
         chips = chips1 + chips2 + chips3 + chips4
         chips_gts = chips_gts1 + chips_gts2 + chips_gts3 + chips_gts4
+        print(chips_gts)
         gt_out = {}
         for i in range(len(chips)):
             origin_name = self.imname.split('.')[0]
@@ -198,7 +196,7 @@ class Im2Chip(object):
                         gt2candidates[j].add(i)
             candidate_contains.append(contain)
             candidate_contains_size.append(len(contain))
-        return contains, gt2candidates
+        return candidate_contains, candidate_contains_size, gt2candidates
 
     def __genChip(self, image, chip_candidates, scale, s_range):
         [box_min, box_max] = s_range
@@ -210,6 +208,7 @@ class Im2Chip(object):
             ]).astype(float)
         if not len(gt_filtered) == 0:
             gt_filtered[:, 1:] *= scale
+            # print(chip_candidates)
         chips_pos = self.__genPosChips(chip_candidates, gt_filtered)
         rp_filtered = np.array([
             s for s in self.rp_list if (s[2] >= box_min or s[3] >= box_min)
@@ -218,20 +217,18 @@ class Im2Chip(object):
         rp_filtered *= scale
         chips_neg = self.__genNegChips(chip_candidates, chips_pos, rp_filtered,
                                        1, 2)
-        chips = chip_candidates[chips_neg + chips_pos]
-        # chips_im = [
-        #     image[chip[1]:(chip[1] + chip[3]), chip[0]:(chip[0] + chip[2])]
-        #     for chip in chips
-        # ]
-        self.__genChipsGt(chips, gt_filtered)
-        chips_gts = []
+        chips_shape = chip_candidates[chips_neg + chips_pos].astype(int)
+        # print(chips_pos_test)
+        # print(chips_pos)
+        chips, chips_gts = self.__genChipsGt(chips_shape, image, gt_filtered)
+        # chips_gts = []
         return chips, chips_gts
 
     def __genPosChips(self, chip_candidates, gt_filtered):
         gt_boxes = gt_filtered[:, 1:] if len(gt_filtered) > 0 else []
-        contains, gt2candidates = self.__overlap(chip_candidates, gt_boxes)
-        candidate_contains_size, candidate_contains = self.__countOverlap(
-            contains)
+        candidate_contains, candidate_contains_size, gt2candidates = self.__overlap(
+            chip_candidates, gt_boxes)
+        # print(candidate_contains_size)
         chips = []
         gt_checked = set()
         candidate_contains_max = np.argmax(candidate_contains_size)
@@ -250,9 +247,8 @@ class Im2Chip(object):
 
     def __genNegChips(self, chip_candidates, chips_pos, rp_filtered, rpn_count,
                       n):
-        contains, rp2candidates = self.__overlap(chip_candidates, rp_filtered)
-        candidate_contains_size, candidate_contains = self.__countOverlap(
-            contains)
+        candidate_contains, candidate_contains_size, rp2candidates = self.__overlap(
+            chip_candidates, rp_filtered)
         checked_rp = set()
         for chosen_chip in chips_pos:
             for rp in candidate_contains[chosen_chip]:
@@ -267,16 +263,31 @@ class Im2Chip(object):
         np.random.shuffle(chip_neg)
         return chip_neg[0:n]
 
-    def __genChipsGt(self, chips_choosen, gt_filtered):
+    def __genChipsGt(self, chips_shape, image, gt_filtered):
+        gt_boxes = gt_filtered[:, 1:] if len(gt_filtered) > 0 else []
         # add to output gt
-        contains, gt2candidates = self.__overlap(chips_choosen, gt_filtered)
-        candidate_contains_size, candidate_contains = self.__countOverlap(
-            contains)
+        # print(chips_shape)
+        chips = [
+            image[s[1]:(s[1] + s[3]), s[0]:(s[0] + s[2])] for s in chips_shape
+        ]
+        chip_contains, chip_contains_size, gt2chips = self.__overlap(
+            chips_shape, gt_boxes)
+        # print(chip_contains)
+        chip_gts = []
+        for i in range(len(chips_shape)):
+            chip_gt = []
+            for gt_index in chip_contains[i]:
+                gt = gt_filtered[gt_index].copy()
+                gt[1:3] -= chips_shape[i][0:2]
+                chip_gt.append(gt)
+            chip_gts.append(chip_gt)
+        for i in range(len(chips)):
+            chips[i] = chips[i].copy()
+            for gt in chip_gts[i]:
+                gt = gt.astype(int)
+                cv2.rectangle(chips[i], (gt[1], gt[2]),
+                              (gt[1] + gt[3], gt[2] + gt[4]), (255, 0, 0), 1)
+            cv2.imshow('image', chips[i])
+            cv2.waitKey(0)
 
-        # for i in range(len(chips_choosen)):
-        #     # for gt_index in candidate_contains:
-        #     gt_choosen = gt_filtered[chips_choosen]
-
-        # gt_scaled = gt_filtered[gt_inside_index]
-        # gt_scaled[1:3] -= chip_candidates[candidate_contains_max, 0:2]
-        return candidate_contains
+        return chips, chip_gts

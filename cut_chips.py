@@ -4,7 +4,7 @@ import numpy as np
 import os
 # PATH = 'instances_train2014.json'
 VAL_PATH = 'train_annotations.txt'
-IMG_PATH = './val'
+IMG_PATH = './train'
 POSITION_PATH = 'position.txt'
 
 # read annotation file into a dictionary
@@ -31,10 +31,10 @@ for key in os.listdir(IMG_PATH):
     # im_path = os.path.join(IMG_PATH,)
     # image_cutter = Im2Chip(key, gt_dict[key], IMG_PATH)
 
-    image_cutter = Im2Chip(key,[], IMG_PATH)
-    # gts = image_cutter.genChipMultiScale('output_images')
-    img_info = image_cutter.genTestImg(1100, 'val_cut', 'position')
-    img_info_total.update(img_info)
+    image_cutter = Im2Chip(key, gt_dict[key], IMG_PATH)
+    gts = image_cutter.genChipMultiScale('output_images')
+    # img_info = image_cutter.genTestImg(1100, 'val_cut', 'position')
+    # img_info_total.update(img_info)
 with open(POSITION_PATH, 'w') as position_file:
     for key in img_info_total:
         position_file.write(key)
